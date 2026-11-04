@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Presidential Limousine Bodyguard Simulator</title>
+    <!-- Tailwind CSS for UI Overlay -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #030712;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .btn-ui {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-ui:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.2);
+        }
+        .btn-ui:active {
+            transform: translateY(1px);
+        }
+        /* Crosshair Overlay */
+        #crosshair {
+            pointer-events: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 28px;
+            height: 28px;
+            display: none;
+            z-index: 20;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(239, 68, 68, 0.9);
+            box-shadow: 0 0 4px rgba(239, 68, 68, 0.8);
+        }
+        #crosshair::before {
+            top: 13px; left: 0; width: 28px; height: 2px;
+        }
+        #crosshair::after {
+            top: 0; left: 13px; width: 2px; height: 28px;
+        }
+    </style>
+</head>
+<body class="text-gray-100 select-none">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Aiming Reticle -->
+    <div id="crosshair"></div>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer" class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6">
+
+        <!-- Top Header & Status -->
+        <div class="flex flex-col md:flex-row justify-between items-center gap-3 pointer-events-auto">
+            <div class="bg-gray-950/85 border border-red-500/40 backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4">
+                <div class="w-3.5 h-3.5 rounded-full bg-red-500 animate-ping"></div>
+                <div>
+                    <h1 class="text-xs sm:text-sm font-black tracking-widest text-red-400 uppercase">SECRET SERVICE MOTORCADE CONTROL</h1>
+                    <p class="text-[10px] text-gray-400 tracking-wider">OPERATION: PROTECT THE PRESIDENT ("CADILLAC ONE")</p>
+                </div>
+            </div>
+
+            <!-- Threat Warning Alert Banner -->
+            <div id="threat-alert" class="hidden bg-red-600/90 border border-red-400 text-white font-black px-6 py-2 rounded-2xl shadow-2xl text-xs sm:text-sm tracking-wider animate-pulse flex items-center gap-2">
+                <span>⚠️ THREAT DETECTED: ENGAGE HOSTILES OR EVADE!</span>
+            </div>
+
+            <!-- Weapon & Cam Stats -->
+            <div class="bg-gray-950/85 border border-gray-800 backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-6">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-400 font-bold">WEAPON:</span>
+                    <span id="stat-weapon" class="text-amber-400 font-black font-mono text-xs sm:text-sm">HOLSTERED [F]</span>
+                </div>
+                <div class="h-4 w-[1px] bg-gray-800"></div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-400 font-bold">AMMO:</span>
+                    <span id="stat-ammo" class="text-emerald-400 font-black font-mono text-sm sm:text-base">30 / ∞</span>
+                </div>
+                <div class="h-4 w-[1px] bg-gray-800"></div>
+                <button onclick="toggleCamera()" class="btn-ui bg-gray-800 hover:bg-gray-700 text-blue-400 px-3 py-1.5 rounded-xl font-bold text-xs border border-gray-700 flex items-center gap-1">
+                    🎥 <span id="cam-name">3RD PERSON</span> [C]
+                </button>
+            </div>
+        </div>
+
+        <!-- Center Mission Waypoint Indicator & Radar -->
+        <div class="flex justify-between items-center pointer-events-none">
+            <!-- Left Info Panel -->
+            <div class="bg-gray-950/80 border border-gray-800/80 backdrop-blur-md p-4 rounded-2xl shadow-2xl w-64 sm:w-72 pointer-events-auto">
+                <div class="flex justify-between items-center mb-2 border-b border-gray-800 pb-2">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">CURRENT DIRECTIVE</span>
+                    <span id="mission-status" class="text-[9px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-extrabold border border-blue-500/30">EN ROUTE</span>
+                </div>
+                <p id="mission-text" class="text-xs text-gray-200 font-medium mb-2">Escort the President safely to the Summit Convention Center.</p>
+                <div class="flex items-center justify-between text-xs font-mono">
+                    <span class="text-gray-400">DIST TO SUMMIT:</span>
+                    <span id="stat-distance" class="text-blue-400 font-bold">450m</span>
+                </div>
+            </div>
+
+            <!-- Compass / Waypoint Pointer -->
+            <div class="bg-gray-950/80 border border-gray-800/80 backdrop-blur-md p-3 rounded-2xl shadow-2xl flex flex-col items-center w-32">
+                <span class="text-[9px] font-bold text-gray-400 tracking-wider mb-1">WAYPOINT</span>
+                <div class="relative w-16 h-16 rounded-full border-2 border-red-500/40 bg-black/60 flex items-center justify-center">
+                    <div id="waypoint-arrow" class="w-1.5 h-10 bg-red-500 rounded-full transition-transform"></div>
+                </div>
+                <span id="waypoint-bearing" class="text-[10px] text-red-400 font-mono mt-1 font-bold">0°</span>
+            </div>
+        </div>
+
+        <!-- Bottom Telemetry & Controls Dashboard -->
+        <div class="flex flex-col md:flex-row justify-between items-end gap-3 pointer-events-auto">
+
+            <!-- Limo & VIP Meters -->
+            <div class="bg-gray-950/85 border border-gray-800 backdrop-blur-md p-4 rounded-2xl shadow-2xl w-full md:w-80 space-y-3">
+                <!-- Limo Armor Bar -->
+                <div>
+                    <div class="flex justify-between text-xs mb-1 font-bold">
+                        <span class="text-gray-400">LIMO ARMOR ("THE BEAST"):</span>
+                        <span id="meter-armor-text" class="text-emerald-400 font-mono">100%</span>
+                    </div>
+                    <div class="w-full bg-gray-900 rounded-full h-2.5 overflow-hidden border border-gray-800">
+                        <div id="meter-armor-bar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style="width: 100%"></div>
+                    </div>
+                </div>
+
+                <!-- President Stress Level Bar -->
+                <div>
+                    <div class="flex justify-between text-xs mb-1 font-bold">
+                        <span class="text-gray-400">VIP STRESS LEVEL:</span>
+                        <span id="meter-stress-text" class="text-blue-400 font-mono">LOW (0%)</span>
+                    </div>
+                    <div class="w-full bg-gray-900 rounded-full h-2.5 overflow-hidden border border-gray-800">
+                        <div id="meter-stress-bar" class="bg-blue-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Speedometer Gauge -->
+            <div class="bg-gray-950/85 border border-gray-800 backdrop-blur-md p-4 rounded-2xl shadow-2xl flex items-center gap-4">
+                <div class="text-center px-2">
+                    <span class="text-[9px] text-gray-400 font-bold block">SPEED</span>
+                    <span id="gauge-speed" class="text-blue-400 font-mono font-black text-2xl">0</span>
+                    <span class="text-[9px] text-gray-500 font-bold">MPH</span>
+                </div>
+                <div class="h-8 w-[1px] bg-gray-800"></div>
+                <div class="text-xs text-gray-300 space-y-1 text-left">
+                    <div><strong class="text-gray-100">WASD / Arrows:</strong> Drive Limo</div>
+                    <div><strong class="text-gray-100">F:</strong> Draw/Holster Sidearm</div>
+                    <div><strong class="text-gray-100">Left Click:</strong> Fire Weapon</div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- MISSION COMPLETE / FAILED MODAL -->
+    <div id="modal-screen" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md hidden flex items-center justify-center p-4 pointer-events-auto">
+        <div class="bg-gray-950 border border-red-500/50 w-full max-w-lg rounded-3xl shadow-2xl p-6 text-center space-y-5">
+            <div id="modal-icon" class="text-5xl">🏆</div>
+            <h2 id="modal-title" class="text-2xl font-black text-emerald-400 tracking-wider">MISSION ACCOMPLISHED</h2>
+            <p id="modal-desc" class="text-xs sm:text-sm text-gray-300">The President has arrived safely at the summit center. High-threat ambushes were neutralized.</p>
+            <div class="bg-gray-900/80 p-4 rounded-2xl border border-gray-800 space-y-2 text-xs font-mono text-left">
+                <div class="flex justify-between"><span>THREATS NEUTRALIZED:</span> <strong id="summary-kills" class="text-red-400">0</strong></div>
+                <div class="flex justify-between"><span>LIMO ARMOR REMAINING:</span> <strong id="summary-armor" class="text-emerald-400">100%</strong></div>
+            </div>
+            <button onclick="restartGame()" class="btn-ui w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded-2xl text-sm shadow-xl tracking-wider">RESTART OPERATION</button>
+        </div>
+    </div>
+
+    <!-- MAIN 3D SIMULATION CODE -->
+    <script>
+        // -------------------------------------------------------------
+        // AUDIO SYNTHESIS ENGINE (Web Audio API)
+        // -------------------------------------------------------------
+        class AudioSynth {
+            constructor() {
+                this.ctx = null;
+                this.engineOsc = null;
+                this.engineGain = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Engine V8 rumble noise
+                    this.engineOsc = this.ctx.createOscillator();
+                    this.engineGain = this.ctx.createGain();
+                    this.engineOsc.type = 'sawtooth';
+                    this.engineOsc.frequency.setValueAtTime(35, this.ctx.currentTime);
+                    this.engineGain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(180, this.ctx.currentTime);
+
+                    this.engineOsc.connect(filter);
+                    filter.connect(this.engineGain);
+                    this.engineGain.connect(this.ctx.destination);
+                    this.engineOsc.start();
+                }
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+            }
+            updateEngine(speedRatio) {
+                if (!this.ctx) return;
+                const freq = 30 + speedRatio * 120;
+                const vol = 0.05 + speedRatio * 0.15;
+                this.engineOsc.frequency.setTargetAtTime(freq, this.ctx.currentTime, 0.1);
+                this.engineGain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.1);
+            }
+            playGunshot() {
+                this.init();
+                const now = this.ctx.currentTime;
+                
+                // Blast pulse
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.exponentialRampToValueAtTime(30, now + 0.12);
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.12);
+            }
+            playImpact() {
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(120, now);
+                osc.frequency.exponentialRampToValueAtTime(20, now + 0.2);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            }
+        }
+
+        const audio = new AudioSynth();
+
+        // -------------------------------------------------------------
+        // GAME STATE & CONSTANTS
+        // -------------------------------------------------------------
+        const STATE = {
+            armor: 100,
+            stress: 0,
+            speed: 0,
+            steering: 0,
+            heading: 0,
+            posX: 0,
+            posZ: 0,
+            weaponDrawn: false,
+            ammo: 30,
+            cameraMode: 0, // 0: 3rd Chase, 1: Driver Interior, 2: Free Aim
+            kills: 0,
+            gameEnded: false,
+            
+            // Waypoint Target (Summit Center)
+            destX: 0,
+            destZ: -550
+        };
+
+        let scene, camera, renderer;
+        let limoGroup, escortGroup1, escortGroup2;
+        let trafficCars = [];
+        let pedestrians = [];
+        let hostiles = [];
+        let bullets = [];
+        let clock = new THREE.Clock();
+
+        const keys = { w: false, a: false, s: false, d: false };
+
+        // -------------------------------------------------------------
+        // INITIALIZE 3D ENVIRONMENT
+        // -------------------------------------------------------------
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.002);
+
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+
+            const sun = new THREE.DirectionalLight(0xfffaed, 1.2);
+            sun.position.set(100, 200, 80);
+            sun.castShadow = true;
+            scene.add(sun);
+
+            // Build World Elements
+            buildCityGrid();
+            buildPresidentialLimo();
+            buildEscortSUVs();
+            spawnTraffic();
+            spawnPedestrians();
+            spawnThreats();
+
+            // Setup Controls
+            window.addEventListener('resize', onWindowResize);
+            setupInput();
+
+            // Run Loop
+            animate();
+        }
+
+        // -------------------------------------------------------------
+        // CITY GRID & PROCEDURAL SKYSCRAPERS
+        // -------------------------------------------------------------
+        function buildCityGrid() {
+            // Ground Road Mesh
+            const groundGeo = new THREE.PlaneGeometry(1200, 1200);
+            groundGeo.rotateX(-Math.PI / 2);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            scene.add(ground);
+
+            // Building Materials
+            const bldgMat1 = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.3 });
+            const bldgMat2 = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4 });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.1, transparent: true, opacity: 0.6 });
+
+            // Grid Layout for Skyscrapers & Blocks
+            for (let x = -500; x <= 500; x += 100) {
+                for (let z = -500; z <= 500; z += 100) {
+                    if (Math.abs(x) < 40 && Math.abs(z) < 40) continue; // Spawn clearing
+
+                    // Road gap check
+                    if (x % 200 === 0 || z % 200 === 0) continue;
+
+                    const height = 40 + Math.random() * 90;
+                    const bldgGeo = new THREE.BoxGeometry(70, height, 70);
+                    const bldg = new THREE.Mesh(bldgGeo, Math.random() > 0.5 ? bldgMat1 : bldgMat2);
+                    bldg.position.set(x, height / 2, z);
+                    bldg.castShadow = true;
+                    bldg.receiveShadow = true;
+                    scene.add(bldg);
+
+                    // Glass windows layer
+                    const windowGeo = new THREE.BoxGeometry(71, height * 0.8, 71);
+                    const windows = new THREE.Mesh(windowGeo, glassMat);
+                    windows.position.set(x, height / 2, z);
+                    scene.add(windows);
+                }
+            }
+
+            // Destination Summit Center Landmark
+            const summitGeo = new THREE.CylinderGeometry(40, 45, 60, 16);
+            const summitMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.8, roughness: 0.2 });
+            const summit = new THREE.Mesh(summitGeo, summitMat);
+            summit.position.set(STATE.destX, 30, STATE.destZ);
+            scene.add(summit);
+        }
+
+        // -------------------------------------------------------------
+        // PRESIDENTIAL LIMOUSINE ("CADILLAC ONE / THE BEAST")
+        // -------------------------------------------------------------
+        function buildPresidentialLimo() {
+            limoGroup = new THREE.Group();
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.2, metalness: 0.9 });
+            const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.95, roughness: 0.1 });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, transparent: true, opacity: 0.9 });
+
+            // Main Extended Stretch Hull
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 8.5), bodyMat);
+            body.position.y = 0.9;
+            body.castShadow = true;
+            limoGroup.add(body);
+
+            // Cabin Roof
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.1, 4.5), glassMat);
+            cabin.position.set(0, 1.8, -0.5);
+            limoGroup.add(cabin);
+
+            // Front Grill Chrome Trim
+            const grill = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 0.2), chromeMat);
+            grill.position.set(0, 0.9, 4.3);
+            limoGroup.add(grill);
+
+            // Presidential Flags on Hood
+            const flagStaffGeo = new THREE.CylinderGeometry(0.03, 0.03, 1.2);
+            const flagGeo = new THREE.BoxGeometry(0.02, 0.4, 0.6);
+            const flagMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+            const staffLeft = new THREE.Mesh(flagStaffGeo, chromeMat);
+            staffLeft.position.set(-1.0, 1.6, 3.8);
+            const flagLeft = new THREE.Mesh(flagGeo, flagMat);
+            flagLeft.position.set(-1.0, 1.8, 3.5);
+            limoGroup.add(staffLeft);
+            limoGroup.add(flagLeft);
+
+            // Wheels
+            const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.4, 16);
+            wheelGeo.rotateZ(Math.PI / 2);
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 0.8 });
+
+            const positions = [
+                [-1.25, 0.55, 2.8], [1.25, 0.55, 2.8],
+                [-1.25, 0.55, 0.0], [1.25, 0.55, 0.0],
+                [-1.25, 0.55, -2.8], [1.25, 0.55, -2.8]
+            ];
+
+            positions.forEach(pos => {
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.position.set(...pos);
+                wheel.castShadow = true;
+                limoGroup.add(wheel);
+            });
+
+            limoGroup.position.set(STATE.posX, 0, STATE.posZ);
+            scene.add(limoGroup);
+        }
+
+        // -------------------------------------------------------------
+        // ESCORT SECRET SERVICE SUVs
+        // -------------------------------------------------------------
+        function buildEscortSUVs() {
+            escortGroup1 = createSUVModel(0x0f172a);
+            escortGroup2 = createSUVModel(0x0f172a);
+
+            scene.add(escortGroup1);
+            scene.add(escortGroup2);
+        }
+
+        function createSUVModel(colorHex) {
+            const suv = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3 });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.2 });
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.6, 5.2), bodyMat);
+            body.position.y = 1.0;
+            suv.add(body);
+
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.2, 3.2), glassMat);
+            cabin.position.set(0, 2.0, -0.4);
+            suv.add(cabin);
+
+            return suv;
+        }
+
+        // -------------------------------------------------------------
+        // CIVILIAN TRAFFIC & PEDESTRIANS
+        // -------------------------------------------------------------
+        function spawnTraffic() {
+            const colors = [0xd97706, 0x2563eb, 0x059669, 0x475569];
+            for (let i = 0; i < 25; i++) {
+                const car = createSUVModel(colors[i % colors.length]);
+                const rx = (Math.floor(Math.random() * 8) - 4) * 100;
+                const rz = (Math.floor(Math.random() * 8) - 4) * 100;
+                car.position.set(rx + 10, 0, rz);
+                car.userData = { speed: 0.2 + Math.random() * 0.2, dirZ: Math.random() > 0.5 ? 1 : -1 };
+                scene.add(car);
+                trafficCars.push(car);
+            }
+        }
+
+        function spawnPedestrians() {
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047 });
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0x2563eb });
+
+            for (let i = 0; i < 40; i++) {
+                const ped = new THREE.Group();
+                // Body
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 0.3), shirtMat);
+                body.position.y = 0.9;
+                ped.add(body);
+
+                // Head with face feature
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), headMat);
+                head.position.y = 1.6;
+                ped.add(head);
+
+                // Eye detail
+                const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const eyeLeft = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), eyeMat);
+                eyeLeft.position.set(-0.08, 1.65, 0.22);
+                ped.add(eyeLeft);
+
+                const rx = (Math.floor(Math.random() * 8) - 4) * 100 + (Math.random() * 20 - 10);
+                const rz = (Math.floor(Math.random() * 8) - 4) * 100 + (Math.random() * 20 - 10);
+                ped.position.set(rx, 0, rz);
+                ped.userData = { panicking: false };
+                scene.add(ped);
+                pedestrians.push(ped);
+            }
+        }
+
+        // -------------------------------------------------------------
+        // THREAT SYSTEM (AMBUSH SUVS & SNIPERS)
+        // -------------------------------------------------------------
+        function spawnThreats() {
+            // Ambush SUV 1
+            const hostile1 = createSUVModel(0x991b1b);
+            hostile1.position.set(15, 0, -200);
+            hostile1.userData = { hp: 100, type: 'RAMMER' };
+            scene.add(hostile1);
+            hostiles.push(hostile1);
+
+            // Ambush SUV 2
+            const hostile2 = createSUVModel(0x991b1b);
+            hostile2.position.set(-15, 0, -350);
+            hostile2.userData = { hp: 100, type: 'RAMMER' };
+            scene.add(hostile2);
+            hostiles.push(hostile2);
+        }
+
+        // -------------------------------------------------------------
+        // CONTROLS & INPUT SYSTEM
+        // -------------------------------------------------------------
+        function setupInput() {
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'w' || e.key === 'W') keys.w = true;
+                if (e.key === 's' || e.key === 'S') keys.s = true;
+                if (e.key === 'a' || e.key === 'A') keys.a = true;
+                if (e.key === 'd' || e.key === 'D') keys.d = true;
+
+                if (e.key === 'f' || e.key === 'F') toggleWeapon();
+                if (e.key === 'c' || e.key === 'C') toggleCamera();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.key === 'w' || e.key === 'W') keys.w = false;
+                if (e.key === 's' || e.key === 'S') keys.s = false;
+                if (e.key === 'a' || e.key === 'A') keys.a = false;
+                if (e.key === 'd' || e.key === 'D') keys.d = false;
+            });
+
+            window.addEventListener('mousedown', (e) => {
+                if (e.button === 0) fireWeapon();
+            });
+        }
+
+        function toggleWeapon() {
+            STATE.weaponDrawn = !STATE.weaponDrawn;
+            document.getElementById('stat-weapon').innerText = STATE.weaponDrawn ? 'SIDEARM READY' : 'HOLSTERED [F]';
+            document.getElementById('stat-weapon').className = STATE.weaponDrawn ? 'text-red-400 font-black font-mono text-xs sm:text-sm animate-pulse' : 'text-amber-400 font-black font-mono text-xs sm:text-sm';
+            document.getElementById('crosshair').style.display = STATE.weaponDrawn ? 'block' : 'none';
+        }
+
+        function toggleCamera() {
+            STATE.cameraMode = (STATE.cameraMode + 1) % 3;
+            const names = ['3RD PERSON', 'DRIVER INTERIOR', 'FREE AIM'];
+            document.getElementById('cam-name').innerText = names[STATE.cameraMode];
+        }
+
+        function fireWeapon() {
+            if (!STATE.weaponDrawn || STATE.gameEnded) return;
+
+            audio.playGunshot();
+
+            // Raycast shot center screen
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+            const intersects = raycaster.intersectObjects(hostiles, true);
+            if (intersects.length > 0) {
+                let hitObj = intersects[0].object;
+                while (hitObj.parent && !hitObj.userData.hp) hitObj = hitObj.parent;
+
+                if (hitObj.userData.hp) {
+                    hitObj.userData.hp -= 35;
+                    audio.playImpact();
+
+                    if (hitObj.userData.hp <= 0) {
+                        scene.remove(hitObj);
+                        hostiles = hostiles.filter(h => h !== hitObj);
+                        STATE.kills++;
+                    }
+                }
+            }
+
+            // Panic nearby pedestrians
+            pedestrians.forEach(p => p.userData.panicking = true);
+        }
+
+        // -------------------------------------------------------------
+        // MAIN SIMULATION LOOP
+        // -------------------------------------------------------------
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (STATE.gameEnded) return;
+
+            const dt = clock.getDelta();
+
+            // Vehicle Physics
+            if (keys.w) STATE.speed = Math.min(1.2, STATE.speed + dt * 0.8);
+            else if (keys.s) STATE.speed = Math.max(-0.4, STATE.speed - dt * 0.8);
+            else STATE.speed *= 0.96;
+
+            if (keys.a) STATE.steering = Math.max(-1, STATE.steering - dt * 3);
+            else if (keys.d) STATE.steering = Math.min(1, STATE.steering + dt * 3);
+            else STATE.steering *= 0.8;
+
+            STATE.heading += STATE.steering * STATE.speed * dt * 0.8;
+
+            STATE.posX += Math.sin(STATE.heading) * STATE.speed * dt * 35;
+            STATE.posZ += Math.cos(STATE.heading) * STATE.speed * dt * 35;
+
+            audio.updateEngine(Math.abs(STATE.speed));
+
+            // Position Limousine
+            if (limoGroup) {
+                limoGroup.position.set(STATE.posX, 0, STATE.posZ);
+                limoGroup.rotation.y = STATE.heading;
+            }
+
+            // Position Escorts (Trailing behind and flanking)
+            if (escortGroup1 && escortGroup2) {
+                const off1X = Math.sin(STATE.heading - 0.3) * -12;
+                const off1Z = Math.cos(STATE.heading - 0.3) * -12;
+                escortGroup1.position.set(STATE.posX + off1X, 0, STATE.posZ + off1Z);
+                escortGroup1.rotation.y = STATE.heading;
+
+                const off2X = Math.sin(STATE.heading + 0.3) * -12;
+                const off2Z = Math.cos(STATE.heading + 0.3) * -12;
+                escortGroup2.position.set(STATE.posX + off2X, 0, STATE.posZ + off2Z);
+                escortGroup2.rotation.y = STATE.heading;
+            }
+
+            // Update Hostile AI Attacks
+            let activeThreat = false;
+            hostiles.forEach(h => {
+                const dist = Math.hypot(STATE.posX - h.position.x, STATE.posZ - h.position.z);
+                if (dist < 120) {
+                    activeThreat = true;
+                    // Ramming AI behavior
+                    const angle = Math.atan2(STATE.posX - h.position.x, STATE.posZ - h.position.z);
+                    h.position.x += Math.sin(angle) * dt * 15;
+                    h.position.z += Math.cos(angle) * dt * 15;
+                    h.rotation.y = angle;
+
+                    if (dist < 5) {
+                        STATE.armor = Math.max(0, STATE.armor - dt * 15);
+                        STATE.stress = Math.min(100, STATE.stress + dt * 10);
+                        audio.playImpact();
+                    }
+                }
+            });
+
+            // Threat UI alert
+            document.getElementById('threat-alert').style.display = activeThreat ? 'flex' : 'none';
+
+            // Update Pedestrian Panic Behavior
+            pedestrians.forEach(p => {
+                if (p.userData.panicking) {
+                    p.position.x += (Math.random() - 0.5) * dt * 10;
+                    p.position.z += (Math.random() - 0.5) * dt * 10;
+                }
+            });
+
+            // Camera Following Rig
+            if (STATE.cameraMode === 0) {
+                // 3rd Person Chase
+                const camDist = 16;
+                const camHeight = 6;
+                camera.position.x = STATE.posX - Math.sin(STATE.heading) * camDist;
+                camera.position.z = STATE.posZ - Math.cos(STATE.heading) * camDist;
+                camera.position.y = camHeight;
+                camera.lookAt(STATE.posX, 1.8, STATE.posZ);
+            } else if (STATE.cameraMode === 1) {
+                // Driver Interior
+                camera.position.x = STATE.posX + Math.sin(STATE.heading) * 0.5;
+                camera.position.z = STATE.posZ + Math.cos(STATE.heading) * 0.5;
+                camera.position.y = 1.6;
+                camera.lookAt(STATE.posX + Math.sin(STATE.heading) * 10, 1.5, STATE.posZ + Math.cos(STATE.heading) * 10);
+            }
+
+            // HUD Telemetry Updates
+            const distToSummit = Math.hypot(STATE.posX - STATE.destX, STATE.posZ - STATE.destZ);
+            document.getElementById('gauge-speed').innerText = Math.round(Math.abs(STATE.speed) * 45);
+            document.getElementById('stat-distance').innerText = `${Math.round(distToSummit)}m`;
+            
+            document.getElementById('meter-armor-text').innerText = `${Math.round(STATE.armor)}%`;
+            document.getElementById('meter-armor-bar').style.width = `${STATE.armor}%`;
+
+            document.getElementById('meter-stress-text').innerText = `${Math.round(STATE.stress)}%`;
+            document.getElementById('meter-stress-bar').style.width = `${STATE.stress}%`;
+
+            // Waypoint Compass Needle
+            const angleToDest = Math.atan2(STATE.destX - STATE.posX, STATE.destZ - STATE.posZ);
+            const relativeAngle = angleToDest - STATE.heading;
+            document.getElementById('waypoint-arrow').style.transform = `rotate(${relativeAngle}rad)`;
+            document.getElementById('waypoint-bearing').innerText = `${Math.round((angleToDest * 180) / Math.PI + 360) % 360}°`;
+
+            // Check Win / Loss Conditions
+            if (distToSummit < 25) {
+                endGame(true, "The President has arrived safely at the summit center!");
+            } else if (STATE.armor <= 0) {
+                endGame(false, "The Presidential Limousine armor was compromised!");
+            } else if (STATE.stress >= 100) {
+                endGame(false, "VIP stress reached critical levels during the assault!");
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function endGame(success, message) {
+            STATE.gameEnded = true;
+            const modal = document.getElementById('modal-screen');
+            modal.classList.remove('hidden');
+
+            document.getElementById('modal-icon').innerText = success ? '🏆' : '⚠️';
+            document.getElementById('modal-title').innerText = success ? 'MISSION ACCOMPLISHED' : 'OPERATION FAILED';
+            document.getElementById('modal-title').className = success ? 'text-2xl font-black text-emerald-400 tracking-wider' : 'text-2xl font-black text-red-500 tracking-wider';
+            document.getElementById('modal-desc').innerText = message;
+
+            document.getElementById('summary-kills').innerText = STATE.kills;
+            document.getElementById('summary-armor').innerText = `${Math.round(STATE.armor)}%`;
+        }
+
+        function restartGame() {
+            window.location.reload();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
